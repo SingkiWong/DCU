@@ -82,10 +82,6 @@ spai_single_dcu: src/spai_single_dcu.cpp
 	@echo "编译成功！可执行文件: $@"
 	@echo "=========================================="
 
-# Original Version (for comparison)
-DtestStaticSPAINew30: legacy/DtestStaticSPAINew30.cpp
-	@echo "编译原始版本..."
-	$(CXX) $(HIPCC_FLAGS) $(INCLUDES) -o $@ $< $(LDFLAGS) $(LIBRARIES)
 
 # Debug Build
 debug:
@@ -95,7 +91,6 @@ debug:
 clean:
 	@echo "清理编译文件..."
 	rm -f spai_single_dcu
-	rm -f DtestStaticSPAINew30
 	rm -f *.o
 	@echo "清理完成"
 

@@ -1,14 +1,15 @@
-# 四算法分包总览
+# 四算法分包（清理后）
 
-为便于区分与独立运行，已将实验入口拆为四个算法包：
+本目录保留四个可区分的实验入口：
 
-1. `01_static_single_card`：静态 + 单卡
-2. `02_static_multi_card`：静态 + 多卡
-3. `03_dynamic_single_card`：动态 + 单卡
-4. `04_dynamic_multi_card`：动态 + 多卡（支持MPI+HIP）
+1. `01_static_single_card`
+2. `02_static_multi_card`
+3. `03_dynamic_single_card`
+4. `04_dynamic_multi_card`
 
-> 说明：本项目中按你的设备口径，`1个DCU=2张卡`。因此多DCU实验常用规模为：
->
-> - 1 DCU = 2 cards
-> - 2 DCU = 4 cards
-> - 3 DCU = 6 cards
+统一口径：
+- 1 DCU = 2 cards
+- 2 DCU = 4 cards
+- 3 DCU = 6 cards
+
+建议配合 `run_all_packages.sh` 和 `experiments/` 数据库工具使用。
