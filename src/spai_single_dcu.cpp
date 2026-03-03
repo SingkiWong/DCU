@@ -2727,7 +2727,20 @@ int main(int argc, char **argv) {
 
     CSC_Matrix *CSC_A;
     CSC_A = (CSC_Matrix *) malloc(sizeof(CSC_Matrix));
+    if (!CSC_A) {
+        printf("错误: 无法分配CSC_A\n");
+        return -1;
+    }
+    memset(CSC_A, 0, sizeof(CSC_Matrix));
     readMatrixToCSC(filename, CSC_A);
+    if (!CSC_A->mPtr || !CSC_A->mIndex || !CSC_A->mData || CSC_A->n <= 0) {
+        printf("错误: 矩阵读取失败或数据无效: %s\n", filename);
+        if (CSC_A->mPtr) free(CSC_A->mPtr);
+        if (CSC_A->mIndex) free(CSC_A->mIndex);
+        if (CSC_A->mData) free(CSC_A->mData);
+        free(CSC_A);
+        return -1;
+    }
 
 
     hipEvent_t start, stop;
@@ -2740,6 +2753,11 @@ int main(int argc, char **argv) {
 
     CSC_Matrix *devCSC_A;
     devCSC_A = (CSC_Matrix *) malloc(sizeof(CSC_Matrix));
+    if (!devCSC_A) {
+        printf("错误: 无法分配devCSC_A\n");
+        return -1;
+    }
+    memset(devCSC_A, 0, sizeof(CSC_Matrix));
     devCSC_A->n = CSC_A->n;
     devCSC_A->nonzeroes = CSC_A->nonzeroes;
     devCSC_A->nCol = CSC_A->n;
@@ -2747,6 +2765,11 @@ int main(int argc, char **argv) {
 
     CSC_Matrix *devCSC_M;
     devCSC_M = (CSC_Matrix *) malloc(sizeof(CSC_Matrix));
+    if (!devCSC_M) {
+        printf("错误: 无法分配devCSC_M\n");
+        return -1;
+    }
+    memset(devCSC_M, 0, sizeof(CSC_Matrix));
 
     hipMalloc((void **) &devCSC_A->mPtr, sizeof(int) * (CSC_A->nCol + 1));
     hipMalloc((void **) &devCSC_A->mIndex, sizeof(int) * CSC_A->nonzeroes);

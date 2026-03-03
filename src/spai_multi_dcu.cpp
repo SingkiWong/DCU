@@ -1511,6 +1511,7 @@ void replicateMatrixA(MultiDCU_Context *ctx, CSC_Matrix *CSC_A) {
             printf("错误: DCU %d - 无法分配主机内存\n", i);
             exit(EXIT_FAILURE);
         }
+        memset(ctx->devCSC_A[i], 0, sizeof(CSC_Matrix));
 
         ctx->devCSC_A[i]->n = CSC_A->n;
         ctx->devCSC_A[i]->nonzeroes = CSC_A->nonzeroes;
@@ -1881,6 +1882,11 @@ float StaticSPAIv20_MultiDCU(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A, CSC
             // 创建局部矩阵结构（只包含该DCU负责的列）
             CSC_Matrix *devA_local = ctx->devCSC_A[dcuId];
             ctx->devCSC_M_local[dcuId] = (CSC_Matrix*)malloc(sizeof(CSC_Matrix));
+            if (!ctx->devCSC_M_local[dcuId]) {
+                printf("错误: DCU %d - 无法分配局部矩阵M\n", dcuId);
+                continue;
+            }
+            memset(ctx->devCSC_M_local[dcuId], 0, sizeof(CSC_Matrix));
             CSC_Matrix *devM_local = ctx->devCSC_M_local[dcuId];
 
             // 调用列范围SPAI计算函数
@@ -2330,6 +2336,7 @@ int main(int argc, char **argv) {
         printf("错误: 无法分配内存\n");
         return EXIT_FAILURE;
     }
+    memset(CSC_A, 0, sizeof(CSC_Matrix));
 
     printf("\n正在读取矩阵文件: %s\n", filename);
     readMatrixToCSC(filename, CSC_A);
@@ -2370,6 +2377,19 @@ int main(int argc, char **argv) {
 
     // 多DCU并行计算SPAI预条件子
     CSC_Matrix *devCSC_M_global = (CSC_Matrix*)malloc(sizeof(CSC_Matrix));
+    if (!devCSC_M_global) {
+        printf("错误: 无法分配全局预条件矩阵\n");
+        cleanupMultiDCU(ctx);
+        if (CSC_A->mPtr) free(CSC_A->mPtr);
+        if (CSC_A->mIndex) free(CSC_A->mIndex);
+        if (CSC_A->mData) free(CSC_A->mData);
+        free(CSC_A);
+#ifdef USE_MPI
+        MPI_Finalize();
+#endif
+        return EXIT_FAILURE;
+    }
+    memset(devCSC_M_global, 0, sizeof(CSC_Matrix));
     float preconditioningTime = StaticSPAIv20_MultiDCU(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd, useNnzBalance);
 
     // 聚合本节点多DCU结果
@@ -2381,6 +2401,7 @@ int main(int argc, char **argv) {
         CSC_Matrix *devCSC_M_final = NULL;
         if (mpiRank == 0) {
             devCSC_M_final = (CSC_Matrix*)malloc(sizeof(CSC_Matrix));
+            if (devCSC_M_final) memset(devCSC_M_final, 0, sizeof(CSC_Matrix));
         }
 
         aggregateResultsMPI(devCSC_M_global, devCSC_M_final, mpiRank, mpiSize, CSC_A->nCol);
