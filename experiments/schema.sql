@@ -1,11 +1,12 @@
--- Benchmark DB schema for DCU SPAI / GPUPBICGSTAB experiments
+-- Benchmark DB schema for DCU SPAI / GPUPBICGSTAB experiments (4 algorithm packages)
 
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS algorithms (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
-    mode TEXT NOT NULL CHECK(mode IN ('single_dcu_static', 'multi_dcu_static_dynamic', 'baseline')),
+    class TEXT NOT NULL CHECK(class IN ('project_algo', 'baseline')),
+    dimension TEXT NOT NULL CHECK(dimension IN ('static_single', 'static_multi', 'dynamic_single', 'dynamic_multi', 'baseline')),
     backend TEXT NOT NULL,
     preconditioner TEXT NOT NULL,
     notes TEXT DEFAULT ''
@@ -19,7 +20,9 @@ CREATE TABLE IF NOT EXISTS experiment_runs (
     matrix_cols INTEGER NOT NULL,
     matrix_nnz INTEGER NOT NULL,
     dcu_mode TEXT NOT NULL CHECK(dcu_mode IN ('single_node_multi_card', 'multi_node_multi_card_mpi_hip')),
-    dcu_count INTEGER NOT NULL CHECK(dcu_count IN (1, 2, 4)),
+    dcu_units INTEGER NOT NULL CHECK(dcu_units IN (1, 2, 3)),
+    cards_per_dcu INTEGER NOT NULL DEFAULT 2 CHECK(cards_per_dcu = 2),
+    total_cards INTEGER NOT NULL CHECK(total_cards IN (2, 4, 6)),
     node_count INTEGER NOT NULL,
     partition_strategy TEXT NOT NULL CHECK(partition_strategy IN ('balanced_columns', 'balanced_nnz')),
     converged INTEGER NOT NULL CHECK(converged IN (0, 1)),
@@ -47,14 +50,16 @@ CREATE TABLE IF NOT EXISTS run_algorithm_metrics (
     UNIQUE(run_id, algorithm_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_runs_dcu ON experiment_runs(dcu_mode, dcu_count);
+CREATE INDEX IF NOT EXISTS idx_runs_cards ON experiment_runs(dcu_mode, dcu_units, total_cards);
 CREATE INDEX IF NOT EXISTS idx_runs_matrix ON experiment_runs(matrix_name);
 CREATE INDEX IF NOT EXISTS idx_metrics_total ON run_algorithm_metrics(total_ms);
 
--- Seed algorithms required by the benchmark spec.
-INSERT OR IGNORE INTO algorithms (name, mode, backend, preconditioner, notes) VALUES
-    ('single_dcu_static_spai', 'single_dcu_static', 'HIP', 'Static SPAI', '单DCU静态算法'),
-    ('multi_dcu_static_dynamic_spai', 'multi_dcu_static_dynamic', 'HIP+MPI', 'Static+Dynamic SPAI', '多DCU一静一动算法'),
-    ('cusparse_csrilu0', 'baseline', 'cuSPARSE', 'CSRILU0', '不完全LU分解预条件'),
-    ('viennacl_sspai_vcl', 'baseline', 'ViennaCL', 'SSPAI-VCL', '稀疏近似逆预条件'),
-    ('gspai_adaptive', 'baseline', 'GSPAI', 'Adaptive SPAI', '自适应GSPAI算法');
+-- Seed required project algorithms + baseline algorithms.
+INSERT OR IGNORE INTO algorithms (name, class, dimension, backend, preconditioner, notes) VALUES
+    ('static_single_card', 'project_algo', 'static_single', 'HIP', 'Static SPAI', '包1：静态+单卡'),
+    ('static_multi_card', 'project_algo', 'static_multi', 'HIP', 'Static SPAI', '包2：静态+多卡'),
+    ('dynamic_single_card', 'project_algo', 'dynamic_single', 'HIP', 'Dynamic SPAI', '包3：动态+单卡'),
+    ('dynamic_multi_card', 'project_algo', 'dynamic_multi', 'HIP+MPI', 'Dynamic SPAI', '包4：动态+多卡'),
+    ('cusparse_csrilu0', 'baseline', 'baseline', 'cuSPARSE', 'CSRILU0', '不完全LU分解预条件'),
+    ('viennacl_sspai_vcl', 'baseline', 'baseline', 'ViennaCL', 'SSPAI-VCL', '稀疏近似逆预条件'),
+    ('gspai_adaptive', 'baseline', 'baseline', 'GSPAI', 'Adaptive SPAI', '自适应GSPAI算法');

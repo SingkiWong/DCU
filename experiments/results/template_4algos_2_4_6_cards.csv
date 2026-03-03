@@ -1,0 +1,13 @@
+run_tag,algorithm,matrix,total_cards,dcu_units,preconditioner_ms,gpupbicgstab_ms,total_ms,iteration_count,converged
+exp_2cards,static_single_card,circuit_2.mtx,2,1,,,,,,
+exp_2cards,static_multi_card,circuit_2.mtx,2,1,,,,,,
+exp_2cards,dynamic_single_card,circuit_2.mtx,2,1,,,,,,
+exp_2cards,dynamic_multi_card,circuit_2.mtx,2,1,,,,,,
+exp_4cards,static_single_card,circuit_2.mtx,4,2,,,,,,
+exp_4cards,static_multi_card,circuit_2.mtx,4,2,,,,,,
+exp_4cards,dynamic_single_card,circuit_2.mtx,4,2,,,,,,
+exp_4cards,dynamic_multi_card,circuit_2.mtx,4,2,,,,,,
+exp_6cards,static_single_card,circuit_2.mtx,6,3,,,,,,
+exp_6cards,static_multi_card,circuit_2.mtx,6,3,,,,,,
+exp_6cards,dynamic_single_card,circuit_2.mtx,6,3,,,,,,
+exp_6cards,dynamic_multi_card,circuit_2.mtx,6,3,,,,,,

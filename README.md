@@ -287,3 +287,15 @@ SPAI（Sparse Approximate Inverse）预条件子通过计算稀疏矩阵A的近�
 **版本**: 1.0-DCU-Fixed
 **更新日期**: 2026-02-05
 **状态**: 已验证可用
+
+
+## 🗂 四算法分包（新增）
+
+为方便区分静态/动态、单卡/多卡，新增目录：
+
+- `algorithm_packages/01_static_single_card`
+- `algorithm_packages/02_static_multi_card`
+- `algorithm_packages/03_dynamic_single_card`
+- `algorithm_packages/04_dynamic_multi_card`
+
+多DCU口径按 `1 DCU = 2 cards`，实验重点覆盖 `2/4/6 cards`（即 `1/2/3 DCU`）。
