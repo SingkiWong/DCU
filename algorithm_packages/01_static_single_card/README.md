@@ -2,12 +2,12 @@
 
 ## 对应实现
 - 可执行程序：`spai_single_dcu`
-- 源码：`spai_single_dcu.cpp`
+- 源码：`src/spai_single_dcu.cpp`
 - 编译：`make -f Makefile.single`
 
 ## 运行
 ```bash
-echo "circuit_2.mtx" | ./spai_single_dcu
+echo "matrices/circuit_2.mtx" | ./spai_single_dcu
 ```
 
 ## 采集指标

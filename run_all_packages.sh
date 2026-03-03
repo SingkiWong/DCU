@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-MATRIX=${1:-circuit_2.mtx}
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+cd "$SCRIPT_DIR"
+
+MATRIX=${1:-matrices/circuit_2.mtx}
 
 echo "[1/4] static_single_card"
 algorithm_packages/01_static_single_card/run.sh "$MATRIX"

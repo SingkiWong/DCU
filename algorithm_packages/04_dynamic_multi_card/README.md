@@ -2,7 +2,7 @@
 
 ## 对应实现
 - 可执行程序：`spai_multi_dcu_mpi`
-- 源码：`spai_multi_dcu.cpp`（`USE_MPI=1`）
+- 源码：`src/spai_multi_dcu.cpp`（`USE_MPI=1`）
 - 编译：`make -f Makefile.multi mpi`
 
 ## 卡数口径

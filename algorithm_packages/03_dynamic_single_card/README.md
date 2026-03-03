@@ -9,5 +9,5 @@
 
 ## 运行（临时复用）
 ```bash
-echo "circuit_2.mtx" | ./spai_single_dcu
+echo "matrices/circuit_2.mtx" | ./spai_single_dcu
 ```
