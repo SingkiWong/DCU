@@ -6,6 +6,7 @@
 #include <memory.h>
 #include <string>
 #include <vector>
+#include <cstring>
 #include "common/dataType.h"
 #include "common/read.h"
 #include "common/init.h"
@@ -2689,26 +2690,40 @@ float StaticSPAIv20(CSC_Matrix *devA, CSC_Matrix *devM) {
  *Test for Reading the matrix from the file that comes from the SuiteSparse Matrix Collection
  */
 int main(int argc, char **argv) {
+    char filename[256] = "matrices/circuit_2.mtx";
+    const char *strategy = "static";
+    int deviceId = 0;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--matrix") == 0 && i + 1 < argc) {
+            strncpy(filename, argv[++i], sizeof(filename) - 1);
+            filename[sizeof(filename) - 1] = '\0';
+        } else if (strcmp(argv[i], "--strategy") == 0 && i + 1 < argc) {
+            strategy = argv[++i];
+        } else if (strcmp(argv[i], "--device") == 0 && i + 1 < argc) {
+            deviceId = atoi(argv[++i]);
+        }
+    }
+
     int deviceCount = 0;
     hipGetDeviceCount(&deviceCount);
     if (deviceCount < 1) {
         printf("错误: 未检测到DCU设备\n");
         return -1;
     }
-    printf("检测到 %d 张 DCU，使用第一张DCU运行\n", deviceCount);
-    hipSetDevice(0);  // 明确使用第一张DCU
+
+    if (deviceId < 0 || deviceId >= deviceCount) deviceId = 0;
+    printf("检测到 %d 张 DCU，使用设备 %d 运行\n", deviceCount, deviceId);
+    hipSetDevice(deviceId);
 
     // 查询并显示设备信息
     hipDeviceProp_t prop;
-    hipGetDeviceProperties(&prop, 0);
+    hipGetDeviceProperties(&prop, deviceId);
     printf("使用DCU设备: %s\n", prop.name);
     printf("计算能力: %d.%d\n", prop.major, prop.minor);
     printf("Wavefront大小: %d\n", prop.warpSize);
-
-    char filename[50];
-
-    cout << "Input the matrix filename:" << endl;
-    cin >> filename;
+    printf("策略标签: %s\n", strategy);
+    printf("矩阵文件: %s\n", filename);
 
     CSC_Matrix *CSC_A;
     CSC_A = (CSC_Matrix *) malloc(sizeof(CSC_Matrix));

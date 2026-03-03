@@ -7,7 +7,7 @@
 
 ## 运行
 ```bash
-echo "matrices/circuit_2.mtx" | ./spai_single_dcu
+./spai_single_dcu --strategy static --matrix matrices/circuit_2.mtx
 ```
 
 ## 采集指标

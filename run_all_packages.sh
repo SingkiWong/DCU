@@ -20,5 +20,9 @@ algorithm_packages/02_static_multi_card/run.sh 3 "$MATRIX"
 echo "[3/4] dynamic_single_card"
 algorithm_packages/03_dynamic_single_card/run.sh "$MATRIX"
 
-echo "[4/4] dynamic_multi_card (MPI+HIP) 示例需要mpirun环境"
-echo "例如：algorithm_packages/04_dynamic_multi_card/run.sh 3 3 $MATRIX"
+echo "[4/4] dynamic_multi_card (MPI+HIP)"
+if command -v mpirun >/dev/null 2>&1; then
+  algorithm_packages/04_dynamic_multi_card/run.sh 1 1 "$MATRIX"
+else
+  echo "跳过: 未检测到 mpirun，可手动运行 algorithm_packages/04_dynamic_multi_card/run.sh"
+fi

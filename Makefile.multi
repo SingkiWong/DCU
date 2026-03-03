@@ -49,6 +49,8 @@ LIBRARIES += -lm
 LIBRARIES += -fopenmp
 
 # MPI支持（可选）
+MPI_COMPILE_FLAGS ?=
+MPI_LINK_FLAGS ?=
 ifdef USE_MPI
     # 尝试使用 mpicc 获取编译和链接选项
     MPI_COMPILE_FLAGS := $(shell mpicc --showme:compile 2>/dev/null || echo "-I/usr/lib/x86_64-linux-gnu/openmpi/include")
@@ -101,12 +103,11 @@ both: single multi
 # MPI版本（多节点多DCU）
 mpi: spai_multi_dcu_mpi
 
-spai_multi_dcu_mpi:
+spai_multi_dcu_mpi: src/spai_multi_dcu.cpp
 	@echo "=========================================="
 	@echo "编译MPI多节点多DCU版本"
 	@echo "=========================================="
-	$(MAKE) multi USE_MPI=1
-	@mv spai_multi_dcu spai_multi_dcu_mpi
+	$(CXX) $(HIPCC_FLAGS) -DUSE_MPI $(INCLUDES) $(MPI_COMPILE_FLAGS) -o $@ $< $(LDFLAGS) $(LIBRARIES) $(MPI_LINK_FLAGS)
 	@echo "=========================================="
 	@echo "✓ MPI版本编译成功: spai_multi_dcu_mpi"
 	@echo "=========================================="

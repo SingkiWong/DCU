@@ -4,10 +4,9 @@
 当前仓库主线已有静态SPAI实现；该包用于动态策略单卡实验入口统一。
 
 ## 推荐入口
-- 可先复用 `spai_single_dcu` 进行流程验证
-- 后续将动态列/负载调整逻辑并入单卡执行路径
+- 通过 `--strategy dynamic` 启用动态策略标签（用于实验区分）
 
-## 运行（临时复用）
+## 运行
 ```bash
-echo "matrices/circuit_2.mtx" | ./spai_single_dcu
+./spai_single_dcu --strategy dynamic --matrix matrices/circuit_2.mtx
 ```

@@ -6,4 +6,4 @@ cd "$REPO_ROOT"
 
 MATRIX_FILE=${1:-matrices/circuit_2.mtx}
 make -f Makefile.single spai_single_dcu
-printf "%s\n" "$MATRIX_FILE" | ./spai_single_dcu
+./spai_single_dcu --strategy static --matrix "$MATRIX_FILE"

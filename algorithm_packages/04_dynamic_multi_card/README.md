@@ -13,13 +13,16 @@
 ## 运行示例
 ```bash
 # 2卡（1 DCU）
-mpirun -np 1 ./spai_multi_dcu_mpi 1
+mpirun -np 1 ./spai_multi_dcu_mpi 1 --partition balanced_nnz --precondition-only --matrix matrices/circuit_2.mtx
 
 # 4卡（2 DCU）
-mpirun -np 2 ./spai_multi_dcu_mpi 2
+mpirun -np 2 ./spai_multi_dcu_mpi 2 --partition balanced_nnz --precondition-only --matrix matrices/circuit_2.mtx
 
 # 6卡（3 DCU）
-mpirun -np 3 ./spai_multi_dcu_mpi 3
+mpirun -np 3 ./spai_multi_dcu_mpi 3 --partition balanced_nnz --precondition-only --matrix matrices/circuit_2.mtx
 ```
 
 > 说明：实际节点数与rank数可按机器拓扑调整；建议保证每rank可见本地DCU。
+
+
+> 当前版本多卡主程序仍以预条件子计算为主，`--precondition-only` 为默认建议模式。

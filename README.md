@@ -48,6 +48,10 @@ make -f Makefile.multi mpi
 
 # 一键运行分包流程（示例）
 ./run_all_packages.sh matrices/circuit_2.mtx
+
+# 或者直接指定策略参数
+./spai_single_dcu --strategy static --matrix matrices/circuit_2.mtx
+./spai_multi_dcu 2 --partition balanced_columns --matrix matrices/circuit_2.mtx
 ```
 
 ## 实验数据库

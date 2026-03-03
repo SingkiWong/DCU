@@ -13,11 +13,11 @@
 ## 运行示例
 ```bash
 # 2卡（1 DCU）
-echo "matrices/circuit_2.mtx" | ./spai_multi_dcu 1
+./spai_multi_dcu 1 --partition balanced_columns --matrix matrices/circuit_2.mtx
 
 # 4卡（2 DCU）
-echo "matrices/circuit_2.mtx" | ./spai_multi_dcu 2
+./spai_multi_dcu 2 --partition balanced_columns --matrix matrices/circuit_2.mtx
 
 # 6卡（3 DCU）
-echo "matrices/circuit_2.mtx" | ./spai_multi_dcu 3
+./spai_multi_dcu 3 --partition balanced_columns --matrix matrices/circuit_2.mtx
 ```
