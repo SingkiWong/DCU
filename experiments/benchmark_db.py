@@ -79,7 +79,7 @@ def insert_sample(db_path: Path) -> None:
                     gpupbicgstab_ms, iteration_count, converged
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (run_id, algo_ids["static_spai_mpi"], 3.0 / dcu_units, 0.30, -1, 1),
+                (run_id, algo_ids["static_spai_mpi"], 3.0 / dcu_units, 0.30, 48, 1),
             )
 
             # dynamic interface
@@ -119,7 +119,7 @@ def insert_sample(db_path: Path) -> None:
                     gpupbicgstab_ms, iteration_count, converged
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (run_id, algo_ids["dynamic_spai_mpi"], 2.7 / dcu_units, 0.30, -1, 1),
+                (run_id, algo_ids["dynamic_spai_mpi"], 2.7 / dcu_units, 0.30, 46, 1),
             )
 
 

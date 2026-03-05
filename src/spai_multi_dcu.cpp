@@ -1872,6 +1872,82 @@ float RunDynamicSPAI_MultiDCU_MPI(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A
                                   CSC_Matrix *devCSC_M_global, int baseColStart, int baseColEnd) {
     return StaticSPAIv20_MultiDCU(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd, true);
 }
+
+
+int runBiCGSTABOnRank0(CSC_Matrix *devCSC_A_full, CSC_Matrix *devCSC_M_global) {
+    if (!devCSC_A_full || !devCSC_M_global) return 0;
+
+    CHECK_HIP_ERROR(hipSetDevice(0));
+
+    CSR_Matrix *devCSR_A = (CSR_Matrix*)malloc(sizeof(CSR_Matrix));
+    CSR_Matrix *devCSR_M = (CSR_Matrix*)malloc(sizeof(CSR_Matrix));
+    if (!devCSR_A || !devCSR_M) {
+        if (devCSR_A) free(devCSR_A);
+        if (devCSR_M) free(devCSR_M);
+        return 0;
+    }
+    memset(devCSR_A, 0, sizeof(CSR_Matrix));
+    memset(devCSR_M, 0, sizeof(CSR_Matrix));
+
+    devCSR_A->n = devCSC_A_full->n;
+    devCSR_A->nCol = devCSC_A_full->nCol;
+    devCSR_A->nRow = devCSC_A_full->nRow;
+    devCSR_A->nonzeroes = devCSC_A_full->nonzeroes;
+
+    devCSR_M->n = devCSC_M_global->n;
+    devCSR_M->nCol = devCSC_M_global->nCol;
+    devCSR_M->nRow = devCSC_M_global->nRow;
+    devCSR_M->nonzeroes = devCSC_M_global->nonzeroes;
+
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_A->mPtr, sizeof(int) * (devCSR_A->nRow + 1)));
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_A->mIndex, sizeof(int) * devCSR_A->nonzeroes));
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_A->mData, sizeof(double) * devCSR_A->nonzeroes));
+
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_M->mPtr, sizeof(int) * (devCSR_M->nRow + 1)));
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_M->mIndex, sizeof(int) * devCSR_M->nonzeroes));
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_M->mData, sizeof(double) * devCSR_M->nonzeroes));
+
+    cuCSC2CSR(devCSC_A_full->nRow, devCSC_A_full->nCol, devCSC_A_full->nonzeroes,
+              devCSC_A_full->mData, devCSC_A_full->mIndex, devCSC_A_full->mPtr,
+              devCSR_A->mData, devCSR_A->mIndex, devCSR_A->mPtr);
+
+    cuCSC2CSR(devCSC_M_global->nRow, devCSC_M_global->nCol, devCSC_M_global->nonzeroes,
+              devCSC_M_global->mData, devCSC_M_global->mIndex, devCSC_M_global->mPtr,
+              devCSR_M->mData, devCSR_M->mIndex, devCSR_M->mPtr);
+
+    int n = devCSR_A->n;
+    double *h_b = (double*)malloc(sizeof(double) * n);
+    double *h_x = (double*)malloc(sizeof(double) * n);
+    for (int i = 0; i < n; i++) {
+        h_b[i] = 1.0;
+        h_x[i] = 1.0;
+    }
+
+    double *dev_b = nullptr;
+    double *dev_x = nullptr;
+    CHECK_HIP_ERROR(hipMalloc((void**)&dev_b, sizeof(double) * n));
+    CHECK_HIP_ERROR(hipMalloc((void**)&dev_x, sizeof(double) * n));
+    CHECK_HIP_ERROR(hipMemcpy(dev_b, h_b, sizeof(double) * n, hipMemcpyHostToDevice));
+    CHECK_HIP_ERROR(hipMemcpy(dev_x, h_x, sizeof(double) * n, hipMemcpyHostToDevice));
+
+    int iter = cublas2_pbicgstabv2(devCSR_A, devCSR_M, dev_b, dev_x, 1e-7, 10000);
+
+    free(h_b);
+    free(h_x);
+    hipFree(dev_b);
+    hipFree(dev_x);
+
+    hipFree(devCSR_A->mPtr);
+    hipFree(devCSR_A->mIndex);
+    hipFree(devCSR_A->mData);
+    hipFree(devCSR_M->mPtr);
+    hipFree(devCSR_M->mIndex);
+    hipFree(devCSR_M->mData);
+    free(devCSR_A);
+    free(devCSR_M);
+
+    return iter;
+}
 float StaticSPAIv20_MultiDCU(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A, CSC_Matrix *devCSC_M_global,
                              int baseColStart, int baseColEnd, bool useNnzBalance) {
     float totalTime = 0.0;
@@ -2458,7 +2534,14 @@ int main(int argc, char **argv) {
 
     AlgorithmRunMetrics metrics;
     metrics.preconditionerMs = preconditioningTime;
-    metrics.iterationCount = -1;  // 多DCU求解器尚未完整集成时用 -1 标记
+    metrics.iterationCount = 0;
+
+    if (!preconditionOnly && mpiRank == 0) {
+        metrics.iterationCount = runBiCGSTABOnRank0(ctx->devCSC_A[0], devCSC_M_global);
+    }
+#ifdef USE_MPI
+    MPI_Bcast(&metrics.iterationCount, 1, MPI_INT, 0, MPI_COMM_WORLD);
+#endif
 
     if (mpiRank == 0) {
         printf("[ALGO_REPORT] mode=%s, dcu_units=%d, partition=%s, preconditioner_ms=%.4f, iteration_count=%d\n",

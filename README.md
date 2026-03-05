@@ -1,77 +1,95 @@
-# DCU-SPAI（精简版）
+# Multi-DCU + MPI SPAI 求解器说明
 
-本仓库已完成清理：
-- 删除历史旧文档与过期报告
-- 删除未使用示例/旧程序
-- 保留核心源码、构建文件、实验脚本与结果模板
+本项目当前聚焦 **多DCU + MPI** 运行流程，提供两个算法接口：
 
-## 当前目录
+1. `RunStaticSPAI_MultiDCU_MPI(...)`：静态算法（列均衡分配）
+2. `RunDynamicSPAI_MultiDCU_MPI(...)`：动态算法（按NNZ均衡分配）
 
-```text
-.
-├── src/                       # 主程序源码（single/multi）
-├── include/                   # 头文件
-│   ├── common/
-│   └── bicgstab/
-├── matrices/                  # 测试矩阵
-├── algorithm_packages/        # 四算法运行入口
-├── experiments/               # 数据库schema、工具、结果模板
-├── docs/
-│   └── notes/                 # 实验规范说明
-├── Makefile.single
-├── Makefile.multi
-└── run_all_packages.sh
-```
+两者核心原理一致：
+- 都使用相同的 SPAI 预条件子构建流程
+- 差异仅在任务划分策略（balanced_columns vs balanced_nnz）
 
-## 构建
+---
+
+## 1. 运行前准备
+
+- ROCm/HIP 环境可用
+- MPI 环境可用（`mpirun`, `mpicc`）
+- 矩阵文件在 `matrices/` 目录
+
+编译：
 
 ```bash
-# 单卡
-make -f Makefile.single
-
-# 多卡
-make -f Makefile.multi multi
-
-# MPI 版本
 make -f Makefile.multi mpi
 ```
 
-## 运行
+---
+
+## 2. 运行命令
+
+### 静态算法（多DCU+MPI）
 
 ```bash
-# 单卡静态
-./spai_single_dcu --strategy static --matrix matrices/circuit_2.mtx
-
-# 单卡动态（策略标签）
-./spai_single_dcu --strategy dynamic --matrix matrices/circuit_2.mtx
-
-# 多卡静态（列均衡）
-./spai_multi_dcu 2 --algo static --partition balanced_columns --matrix matrices/circuit_2.mtx
-
-# 多卡动态（NNZ均衡，预条件模式）
-./spai_multi_dcu 2 --algo dynamic --partition balanced_nnz --precondition-only --matrix matrices/circuit_2.mtx
+mpirun -np 2 ./spai_multi_dcu_mpi 2 \
+  --algo static \
+  --partition balanced_columns \
+  --matrix matrices/circuit_2.mtx
 ```
 
-## 一键运行分包
+### 动态算法（多DCU+MPI）
 
 ```bash
-./run_all_packages.sh matrices/circuit_2.mtx
+mpirun -np 2 ./spai_multi_dcu_mpi 2 \
+  --algo dynamic \
+  --partition balanced_nnz \
+  --matrix matrices/circuit_2.mtx
 ```
 
-## 实验数据
+> 若不显式指定 `--partition`，程序会按 `--algo` 自动选择：
+> - static -> balanced_columns
+> - dynamic -> balanced_nnz
 
-```bash
-python3 experiments/benchmark_db.py init --db experiments/benchmark.sqlite
-python3 experiments/benchmark_db.py sample --db experiments/benchmark.sqlite
-python3 experiments/benchmark_db.py report --db experiments/benchmark.sqlite
+---
+
+## 3. 划分逻辑示例（16x16）
+
+- 1 个 DCU：该 DCU 处理 16 列
+- 2 个 DCU：每个 DCU 处理 8 列（均衡）
+- 4 个 DCU：每个 DCU 处理 4 列（均衡）
+
+动态模式下会尝试按列非零元数（NNZ）做更均衡分配。
+
+---
+
+## 4. 输出指标
+
+程序会输出标准化行：
+
+```text
+[ALGO_REPORT] mode=..., dcu_units=..., partition=..., preconditioner_ms=..., iteration_count=...
 ```
 
-详细实验约束见：`docs/notes/EXPERIMENT_SPEC_MULTI_DCU.md`。
+含义：
+- `preconditioner_ms`：预处理（SPAI）时间
+- `iteration_count`：BiCGSTAB 迭代次数（已接入，不再用 -1 占位）
 
+---
 
-## 算法库接口（多DCU+MPI）
+## 5. 算法流程
 
-- `RunStaticSPAI_MultiDCU_MPI(...)`
-- `RunDynamicSPAI_MultiDCU_MPI(...)`
+1. 读取矩阵 A（CSC）
+2. 在每个 DCU 上复制 A
+3. 按算法策略进行列分配（静态列均衡 / 动态NNZ均衡）
+4. 并行构建局部预条件子
+5. 聚合为全局预条件子 M
+6. 在 rank0 上执行 BiCGSTAB 求解，返回迭代次数
+7. 输出预处理时间和迭代次数
 
-两者基本原理和流程一致，仅分区策略不同（静态列均衡 / 动态NNZ均衡）。
+---
+
+## 6. 相关文件
+
+- 主程序：`src/spai_multi_dcu.cpp`
+- 单卡程序：`src/spai_single_dcu.cpp`
+- 求解器：`include/bicgstab/bicgstab_solver.h`
+- 实验数据库：`experiments/schema.sql`, `experiments/benchmark_db.py`
