@@ -9,12 +9,14 @@
 #include <memory.h>
 #include <string>
 #include <vector>
+#include <cstring>
 #include "common/dataType.h"
 #include "common/read.h"
 #include "common/init.h"
 #include "common/assemble.h"
 #include "common/cuFormatConversion.h"
 #include "bicgstab/bicgstab_solver.h"
+#include "common/spai_multi_dcu_api.h"
 
 using namespace std;
 
@@ -1291,7 +1293,7 @@ void enableP2P(MultiDCU_Context *ctx) {
 // 多DCU初始化函数
 //==============================================================================
 
-MultiDCU_Context* initMultiDCU(int requestedDCUs = -1) {
+MultiDCU_Context* initMultiDCU(int requestedDCUs) {
     MultiDCU_Context *ctx = (MultiDCU_Context*)malloc(sizeof(MultiDCU_Context));
 
     // 查询可用DCU数量
@@ -1351,7 +1353,7 @@ MultiDCU_Context* initMultiDCU(int requestedDCUs = -1) {
 // 列分割函数：将矩阵列分配给各个DCU
 //==============================================================================
 
-void distributeColumns(MultiDCU_Context *ctx, const CSC_Matrix *hostA, int baseColStart, int baseColEnd) {
+void distributeColumns(MultiDCU_Context *ctx, const CSC_Matrix *hostA, int baseColStart, int baseColEnd, bool useNnzBalance) {
     if (!ctx || ctx->numDCUs <= 0) {
         printf("错误: 无效的上下文\n");
         return;
@@ -1375,7 +1377,7 @@ void distributeColumns(MultiDCU_Context *ctx, const CSC_Matrix *hostA, int baseC
     printf("列范围: [%d, %d)\n", baseColStart, baseColEnd);
     printf("DCU数量: %d\n", ctx->numDCUs);
 
-    if (hostA->mPtr && hostA->nonzeroes > 0) {
+    if (useNnzBalance && hostA->mPtr && hostA->nonzeroes > 0) {
         int totalNnz = hostA->mPtr[baseColEnd] - hostA->mPtr[baseColStart];
         int targetNnz = totalNnz / ctx->numDCUs;
         printf("分配方式: 按非零元均衡\n");
@@ -1510,6 +1512,7 @@ void replicateMatrixA(MultiDCU_Context *ctx, CSC_Matrix *CSC_A) {
             printf("错误: DCU %d - 无法分配主机内存\n", i);
             exit(EXIT_FAILURE);
         }
+        memset(ctx->devCSC_A[i], 0, sizeof(CSC_Matrix));
 
         ctx->devCSC_A[i]->n = CSC_A->n;
         ctx->devCSC_A[i]->nonzeroes = CSC_A->nonzeroes;
@@ -1851,8 +1854,103 @@ float StaticSPAIv20_ColumnRange(CSC_Matrix *devA, CSC_Matrix *devM,
 // 每个DCU独立计算自己负责的列
 //==============================================================================
 
+
+
 float StaticSPAIv20_MultiDCU(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A, CSC_Matrix *devCSC_M_global,
-                             int baseColStart, int baseColEnd) {
+                             int baseColStart, int baseColEnd, bool useNnzBalance);
+
+struct AlgorithmRunMetrics {
+    float preconditionerMs;
+    int iterationCount;
+};
+
+float RunStaticSPAI_MultiDCU_MPI(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A,
+                                 CSC_Matrix *devCSC_M_global, int baseColStart, int baseColEnd) {
+    return StaticSPAIv20_MultiDCU(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd, false);
+}
+
+float RunDynamicSPAI_MultiDCU_MPI(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A,
+                                  CSC_Matrix *devCSC_M_global, int baseColStart, int baseColEnd) {
+    return StaticSPAIv20_MultiDCU(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd, true);
+}
+
+
+int runBiCGSTABOnRank0(CSC_Matrix *devCSC_A_full, CSC_Matrix *devCSC_M_global) {
+    if (!devCSC_A_full || !devCSC_M_global) return 0;
+
+    CHECK_HIP_ERROR(hipSetDevice(0));
+
+    CSR_Matrix *devCSR_A = (CSR_Matrix*)malloc(sizeof(CSR_Matrix));
+    CSR_Matrix *devCSR_M = (CSR_Matrix*)malloc(sizeof(CSR_Matrix));
+    if (!devCSR_A || !devCSR_M) {
+        if (devCSR_A) free(devCSR_A);
+        if (devCSR_M) free(devCSR_M);
+        return 0;
+    }
+    memset(devCSR_A, 0, sizeof(CSR_Matrix));
+    memset(devCSR_M, 0, sizeof(CSR_Matrix));
+
+    devCSR_A->n = devCSC_A_full->n;
+    devCSR_A->nCol = devCSC_A_full->nCol;
+    devCSR_A->nRow = devCSC_A_full->nRow;
+    devCSR_A->nonzeroes = devCSC_A_full->nonzeroes;
+
+    devCSR_M->n = devCSC_M_global->n;
+    devCSR_M->nCol = devCSC_M_global->nCol;
+    devCSR_M->nRow = devCSC_M_global->nRow;
+    devCSR_M->nonzeroes = devCSC_M_global->nonzeroes;
+
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_A->mPtr, sizeof(int) * (devCSR_A->nRow + 1)));
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_A->mIndex, sizeof(int) * devCSR_A->nonzeroes));
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_A->mData, sizeof(double) * devCSR_A->nonzeroes));
+
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_M->mPtr, sizeof(int) * (devCSR_M->nRow + 1)));
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_M->mIndex, sizeof(int) * devCSR_M->nonzeroes));
+    CHECK_HIP_ERROR(hipMalloc((void**)&devCSR_M->mData, sizeof(double) * devCSR_M->nonzeroes));
+
+    cuCSC2CSR(devCSC_A_full->nRow, devCSC_A_full->nCol, devCSC_A_full->nonzeroes,
+              devCSC_A_full->mData, devCSC_A_full->mIndex, devCSC_A_full->mPtr,
+              devCSR_A->mData, devCSR_A->mIndex, devCSR_A->mPtr);
+
+    cuCSC2CSR(devCSC_M_global->nRow, devCSC_M_global->nCol, devCSC_M_global->nonzeroes,
+              devCSC_M_global->mData, devCSC_M_global->mIndex, devCSC_M_global->mPtr,
+              devCSR_M->mData, devCSR_M->mIndex, devCSR_M->mPtr);
+
+    int n = devCSR_A->n;
+    double *h_b = (double*)malloc(sizeof(double) * n);
+    double *h_x = (double*)malloc(sizeof(double) * n);
+    for (int i = 0; i < n; i++) {
+        h_b[i] = 1.0;
+        h_x[i] = 1.0;
+    }
+
+    double *dev_b = nullptr;
+    double *dev_x = nullptr;
+    CHECK_HIP_ERROR(hipMalloc((void**)&dev_b, sizeof(double) * n));
+    CHECK_HIP_ERROR(hipMalloc((void**)&dev_x, sizeof(double) * n));
+    CHECK_HIP_ERROR(hipMemcpy(dev_b, h_b, sizeof(double) * n, hipMemcpyHostToDevice));
+    CHECK_HIP_ERROR(hipMemcpy(dev_x, h_x, sizeof(double) * n, hipMemcpyHostToDevice));
+
+    int iter = cublas2_pbicgstabv2(devCSR_A, devCSR_M, dev_b, dev_x, 1e-7, 10000);
+
+    free(h_b);
+    free(h_x);
+    hipFree(dev_b);
+    hipFree(dev_x);
+
+    hipFree(devCSR_A->mPtr);
+    hipFree(devCSR_A->mIndex);
+    hipFree(devCSR_A->mData);
+    hipFree(devCSR_M->mPtr);
+    hipFree(devCSR_M->mIndex);
+    hipFree(devCSR_M->mData);
+    free(devCSR_A);
+    free(devCSR_M);
+
+    return iter;
+}
+float StaticSPAIv20_MultiDCU(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A, CSC_Matrix *devCSC_M_global,
+                             int baseColStart, int baseColEnd, bool useNnzBalance) {
     float totalTime = 0.0;
 
     printf("========================================\n");
@@ -1860,7 +1958,7 @@ float StaticSPAIv20_MultiDCU(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A, CSC
     printf("========================================\n");
 
     // 分配列给各个DCU
-    distributeColumns(ctx, CSC_A, baseColStart, baseColEnd);
+    distributeColumns(ctx, CSC_A, baseColStart, baseColEnd, useNnzBalance);
 
     // 检查OpenMP线程数
     omp_set_num_threads(ctx->numDCUs);
@@ -1880,6 +1978,11 @@ float StaticSPAIv20_MultiDCU(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A, CSC
             // 创建局部矩阵结构（只包含该DCU负责的列）
             CSC_Matrix *devA_local = ctx->devCSC_A[dcuId];
             ctx->devCSC_M_local[dcuId] = (CSC_Matrix*)malloc(sizeof(CSC_Matrix));
+            if (!ctx->devCSC_M_local[dcuId]) {
+                printf("错误: DCU %d - 无法分配局部矩阵M\n", dcuId);
+                continue;
+            }
+            memset(ctx->devCSC_M_local[dcuId], 0, sizeof(CSC_Matrix));
             CSC_Matrix *devM_local = ctx->devCSC_M_local[dcuId];
 
             // 调用列范围SPAI计算函数
@@ -2277,11 +2380,65 @@ void cleanupMultiDCU(MultiDCU_Context *ctx) {
 }
 
 //==============================================================================
+// 命令行帮助
+//==============================================================================
+
+void printUsage(const char *prog) {
+    printf("用法: %s [dcu_count] [--algo static|dynamic] [--partition balanced_columns|balanced_nnz]\n", prog);
+    printf("           [--matrix <path>] [--precondition-only] [--help]\n\n");
+    printf("参数说明:\n");
+    printf("  dcu_count                使用的 DCU 数量，默认自动检测全部可用设备\n");
+    printf("  --algo static            静态模式（默认），按列均衡\n");
+    printf("  --algo dynamic           动态模式，按 NNZ 均衡\n");
+    printf("  --partition ...          手动覆盖划分策略\n");
+    printf("  --matrix <path>          指定矩阵路径（默认 matrices/circuit_2.mtx）\n");
+    printf("  --precondition-only      仅计算预条件子，不运行 BiCGSTAB\n");
+    printf("  --help                   打印帮助信息\n\n");
+    printf("算法接口（源码级）:\n");
+    printf("  include/common/spai_multi_dcu_api.h\n");
+    printf("  - RunStaticSPAI_MultiDCU_MPI(...)\n");
+    printf("  - RunDynamicSPAI_MultiDCU_MPI(...)\n");
+}
+
+//==============================================================================
 // 主函数
 //==============================================================================
 
 int main(int argc, char **argv) {
-    char filename[256];
+    char filename[256] = "matrices/circuit_2.mtx";
+    bool useNnzBalance = false;  // static default: balanced columns
+    bool preconditionOnly = false;
+    bool partitionSpecified = false;
+    int requestedDCUs = -1;
+    std::string algoMode = "static";
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            printUsage(argv[0]);
+            return 0;
+        } else if (strcmp(argv[i], "--matrix") == 0 && i + 1 < argc) {
+            strncpy(filename, argv[++i], sizeof(filename) - 1);
+            filename[sizeof(filename) - 1] = '\0';
+        } else if (strcmp(argv[i], "--algo") == 0 && i + 1 < argc) {
+            algoMode = argv[++i];
+        } else if (strcmp(argv[i], "--partition") == 0 && i + 1 < argc) {
+            const char *mode = argv[++i];
+            partitionSpecified = true;
+            if (strcmp(mode, "balanced_nnz") == 0) useNnzBalance = true;
+            else useNnzBalance = false;
+        } else if (strcmp(argv[i], "--precondition-only") == 0) {
+            preconditionOnly = true;
+        } else if (argv[i][0] != '-') {
+            requestedDCUs = atoi(argv[i]);
+        }
+    }
+
+    // 两个算法接口：static / dynamic。未显式指定partition时由算法模式决定。
+    if (!partitionSpecified) {
+        if (algoMode == "dynamic") useNnzBalance = true;
+        else useNnzBalance = false;
+    }
+
 #ifdef USE_MPI
     MPI_Init(&argc, &argv);
     int mpiRank = 0;
@@ -2297,8 +2454,9 @@ int main(int argc, char **argv) {
         cout << "========================================" << endl;
         cout << "多DCU SPAI预条件子求解器" << endl;
         cout << "========================================" << endl;
-        cout << "输入矩阵文件名 (例如: circuit_2.mtx):" << endl;
-        cin >> filename;
+        cout << "矩阵文件: " << filename << endl;
+        cout << "算法模式: " << algoMode << endl;
+        cout << "分区策略: " << (useNnzBalance ? "balanced_nnz" : "balanced_columns") << endl;
     }
 #ifdef USE_MPI
     MPI_Bcast(filename, sizeof(filename), MPI_CHAR, 0, MPI_COMM_WORLD);
@@ -2310,6 +2468,7 @@ int main(int argc, char **argv) {
         printf("错误: 无法分配内存\n");
         return EXIT_FAILURE;
     }
+    memset(CSC_A, 0, sizeof(CSC_Matrix));
 
     printf("\n正在读取矩阵文件: %s\n", filename);
     readMatrixToCSC(filename, CSC_A);
@@ -2327,7 +2486,6 @@ int main(int argc, char **argv) {
            100.0 * CSC_A->nonzeroes / ((double)CSC_A->n * CSC_A->n));
 
     // 初始化多DCU环境
-    int requestedDCUs = (argc > 1) ? atoi(argv[1]) : -1;  // 从命令行参数指定DCU数量
     MultiDCU_Context *ctx = initMultiDCU(requestedDCUs);
 
     // 复制矩阵A到所有DCU
@@ -2351,7 +2509,25 @@ int main(int argc, char **argv) {
 
     // 多DCU并行计算SPAI预条件子
     CSC_Matrix *devCSC_M_global = (CSC_Matrix*)malloc(sizeof(CSC_Matrix));
-    float preconditioningTime = StaticSPAIv20_MultiDCU(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd);
+    if (!devCSC_M_global) {
+        printf("错误: 无法分配全局预条件矩阵\n");
+        cleanupMultiDCU(ctx);
+        if (CSC_A->mPtr) free(CSC_A->mPtr);
+        if (CSC_A->mIndex) free(CSC_A->mIndex);
+        if (CSC_A->mData) free(CSC_A->mData);
+        free(CSC_A);
+#ifdef USE_MPI
+        MPI_Finalize();
+#endif
+        return EXIT_FAILURE;
+    }
+    memset(devCSC_M_global, 0, sizeof(CSC_Matrix));
+    float preconditioningTime = 0.0f;
+    if (algoMode == "dynamic") {
+        preconditioningTime = RunDynamicSPAI_MultiDCU_MPI(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd);
+    } else {
+        preconditioningTime = RunStaticSPAI_MultiDCU_MPI(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd);
+    }
 
     // 聚合本节点多DCU结果
     aggregateResults(ctx, devCSC_M_global);
@@ -2362,6 +2538,7 @@ int main(int argc, char **argv) {
         CSC_Matrix *devCSC_M_final = NULL;
         if (mpiRank == 0) {
             devCSC_M_final = (CSC_Matrix*)malloc(sizeof(CSC_Matrix));
+            if (devCSC_M_final) memset(devCSC_M_final, 0, sizeof(CSC_Matrix));
         }
 
         aggregateResultsMPI(devCSC_M_global, devCSC_M_final, mpiRank, mpiSize, CSC_A->nCol);
@@ -2380,13 +2557,34 @@ int main(int argc, char **argv) {
     // 打印性能统计
     printPerformanceStats(ctx, preconditioningTime);
 
+    AlgorithmRunMetrics metrics;
+    metrics.preconditionerMs = preconditioningTime;
+    metrics.iterationCount = 0;
+
+    if (!preconditionOnly && mpiRank == 0) {
+        metrics.iterationCount = runBiCGSTABOnRank0(ctx->devCSC_A[0], devCSC_M_global);
+    }
+#ifdef USE_MPI
+    MPI_Bcast(&metrics.iterationCount, 1, MPI_INT, 0, MPI_COMM_WORLD);
+#endif
+
+    if (mpiRank == 0) {
+        printf("[ALGO_REPORT] mode=%s, dcu_units=%d, partition=%s, preconditioner_ms=%.4f, iteration_count=%d\n",
+               algoMode.c_str(), ctx->numDCUs, useNnzBalance ? "balanced_nnz" : "balanced_columns",
+               metrics.preconditionerMs, metrics.iterationCount);
+    }
+
 #ifdef USE_MPI
     if (mpiRank == 0) {
 #endif
-    // TODO: 后续的求解过程（BiCGSTAB）
-    // 注意：求解器可以在单个DCU上运行，或者也实现多DCU版本
-    printf("提示: BiCGSTAB求解器尚未集成\n");
-    printf("      当前仅完成预条件子计算阶段\n\n");
+    if (preconditionOnly) {
+        printf("预条件子模式: 跳过BiCGSTAB求解阶段\n\n");
+    } else {
+        // TODO: 后续的求解过程（BiCGSTAB）
+        // 注意：求解器可以在单个DCU上运行，或者也实现多DCU版本
+        printf("提示: BiCGSTAB求解器尚未集成\n");
+        printf("      当前仅完成预条件子计算阶段\n\n");
+    }
 #ifdef USE_MPI
     }
 #endif

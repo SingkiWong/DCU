@@ -35,7 +35,7 @@ ifdef DEBUG
 endif
 
 # 包含路径
-INCLUDES := -I./common
+INCLUDES := -I./include -I./include/common -I./include/bicgstab
 INCLUDES += -I$(ROCM_PATH)/include
 INCLUDES += -I$(HIP_PATH)/include
 
@@ -49,6 +49,8 @@ LIBRARIES += -lm
 LIBRARIES += -fopenmp
 
 # MPI支持（可选）
+MPI_COMPILE_FLAGS ?=
+MPI_LINK_FLAGS ?=
 ifdef USE_MPI
     # 尝试使用 mpicc 获取编译和链接选项
     MPI_COMPILE_FLAGS := $(shell mpicc --showme:compile 2>/dev/null || echo "-I/usr/lib/x86_64-linux-gnu/openmpi/include")
@@ -75,7 +77,7 @@ all: multi
 # 多DCU版本
 multi: spai_multi_dcu
 
-spai_multi_dcu: spai_multi_dcu.cpp
+spai_multi_dcu: src/spai_multi_dcu.cpp
 	@echo "=========================================="
 	@echo "编译多DCU版本 Static SPAI"
 	@echo "架构: $(GPU_ARCH)"
@@ -90,7 +92,7 @@ spai_multi_dcu: spai_multi_dcu.cpp
 # 单DCU版本（对比用）
 single: spai_single_dcu
 
-spai_single_dcu: spai_single_dcu.cpp
+spai_single_dcu: src/spai_single_dcu.cpp
 	@echo "编译单DCU版本（对比用）..."
 	$(CXX) $(HIPCC_FLAGS) $(INCLUDES) -o $@ $< $(LDFLAGS) $(LIBRARIES)
 	@echo "✓ 单DCU版本编译成功"
@@ -101,12 +103,11 @@ both: single multi
 # MPI版本（多节点多DCU）
 mpi: spai_multi_dcu_mpi
 
-spai_multi_dcu_mpi:
+spai_multi_dcu_mpi: src/spai_multi_dcu.cpp
 	@echo "=========================================="
 	@echo "编译MPI多节点多DCU版本"
 	@echo "=========================================="
-	$(MAKE) multi USE_MPI=1
-	@mv spai_multi_dcu spai_multi_dcu_mpi
+	$(CXX) $(HIPCC_FLAGS) -DUSE_MPI $(INCLUDES) $(MPI_COMPILE_FLAGS) -o $@ $< $(LDFLAGS) $(LIBRARIES) $(MPI_LINK_FLAGS)
 	@echo "=========================================="
 	@echo "✓ MPI版本编译成功: spai_multi_dcu_mpi"
 	@echo "=========================================="
@@ -153,19 +154,19 @@ test: spai_multi_dcu
 	@echo "=========================================="
 	@echo "多DCU性能测试"
 	@echo "=========================================="
-	@if [ ! -f "circuit_2.mtx" ]; then \
-		echo "错误: 未找到测试矩阵 circuit_2.mtx"; \
+	@if [ ! -f "matrices/circuit_2.mtx" ]; then \
+		echo "错误: 未找到测试矩阵 matrices/circuit_2.mtx"; \
 		exit 1; \
 	fi
 	@echo ""
-	@echo "--- 测试 1个DCU ---"
-	@echo "circuit_2.mtx" | ./spai_multi_dcu 1 | grep -E "Time|DCU|计算"
+	@echo "--- 测试 1个DCU (2卡) ---"
+	@echo "matrices/circuit_2.mtx" | ./spai_multi_dcu 1 | grep -E "Time|DCU|计算"
 	@echo ""
-	@echo "--- 测试 2个DCU ---"
-	@echo "circuit_2.mtx" | ./spai_multi_dcu 2 | grep -E "Time|DCU|计算"
+	@echo "--- 测试 2个DCU (4卡) ---"
+	@echo "matrices/circuit_2.mtx" | ./spai_multi_dcu 2 | grep -E "Time|DCU|计算"
 	@echo ""
-	@echo "--- 测试 4个DCU ---"
-	@echo "circuit_2.mtx" | ./spai_multi_dcu 4 | grep -E "Time|DCU|计算"
+	@echo "--- 测试 3个DCU (6卡) ---"
+	@echo "matrices/circuit_2.mtx" | ./spai_multi_dcu 3 | grep -E "Time|DCU|计算"
 	@echo ""
 	@echo "=========================================="
 
@@ -174,15 +175,15 @@ verify: both
 	@echo "=========================================="
 	@echo "验证多DCU计算正确性"
 	@echo "=========================================="
-	@if [ ! -f "circuit_2.mtx" ]; then \
-		echo "错误: 未找到测试矩阵 circuit_2.mtx"; \
+	@if [ ! -f "matrices/circuit_2.mtx" ]; then \
+		echo "错误: 未找到测试矩阵 matrices/circuit_2.mtx"; \
 		exit 1; \
 	fi
 	@echo ""
 	@echo "运行单DCU版本..."
-	@echo "circuit_2.mtx" | ./spai_single_dcu > single_output.txt 2>&1
+	@echo "matrices/circuit_2.mtx" | ./spai_single_dcu > single_output.txt 2>&1
 	@echo "运行多DCU版本 (2个DCU)..."
-	@echo "circuit_2.mtx" | ./spai_multi_dcu 2 > multi_output.txt 2>&1
+	@echo "matrices/circuit_2.mtx" | ./spai_multi_dcu 2 > multi_output.txt 2>&1
 	@echo ""
 	@echo "对比结果..."
 	@diff single_output.txt multi_output.txt > /dev/null 2>&1 && \
@@ -205,7 +206,7 @@ help:
 	@echo "  make debug-mpi    - 编译MPI调试版本"
 	@echo "  make clean        - 清理编译文件"
 	@echo "  make info         - 显示编译环境信息"
-	@echo "  make test         - 性能测试（1/2/4个DCU）"
+	@echo "  make test         - 性能测试（1/2/3个DCU，对应2/4/6卡）"
 	@echo "  make verify       - 验证正确性（对比单/多DCU）"
 	@echo "  make help         - 显示此帮助"
 	@echo ""
@@ -219,7 +220,7 @@ help:
 	@echo "  单节点多DCU:"
 	@echo "    ./spai_multi_dcu      # 使用所有DCU"
 	@echo "    ./spai_multi_dcu 2    # 使用2个DCU"
-	@echo "    ./spai_multi_dcu 4    # 使用4个DCU"
+	@echo "    ./spai_multi_dcu 3    # 使用3个DCU（6卡）"
 	@echo ""
 	@echo "  多节点MPI:"
 	@echo "    mpirun -np 2 ./spai_multi_dcu_mpi      # 2个节点，每个节点使用所有DCU"
@@ -242,7 +243,7 @@ help:
 profile: spai_multi_dcu
 	@echo "运行性能分析..."
 	@if command -v rocprof >/dev/null 2>&1; then \
-		echo "circuit_2.mtx" | rocprof --stats ./spai_multi_dcu; \
+		echo "matrices/circuit_2.mtx" | rocprof --stats ./spai_multi_dcu; \
 		echo "性能报告已生成"; \
 	else \
 		echo "错误: rocprof未找到"; \
@@ -261,8 +262,8 @@ check-devices:
 # 运行示例
 run-example: spai_multi_dcu
 	@echo "运行示例 (2个DCU)..."
-	@if [ -f "circuit_2.mtx" ]; then \
-		echo "circuit_2.mtx" | ./spai_multi_dcu 2; \
+	@if [ -f "matrices/circuit_2.mtx" ]; then \
+		echo "matrices/circuit_2.mtx" | ./spai_multi_dcu 2; \
 	else \
 		echo "错误: circuit_2.mtx 不存在"; \
 	fi

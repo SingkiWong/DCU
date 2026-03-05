@@ -244,6 +244,8 @@ int cublas2_pbicgstabv2(CSR_Matrix *devA, CSR_Matrix *devM, double *dev_b, doubl
     for (int i = 0; i < 10; i++) {
         printf("b[%d] = %f\n", i, b[i]);
     }
+    free(b);
+    hipFree(dBuffer);
 
     hipFree(dev_r);
     hipFree(dev_rstar);
@@ -270,5 +272,5 @@ int cublas2_pbicgstabv2(CSR_Matrix *devA, CSR_Matrix *devM, double *dev_b, doubl
     //printf("-------------+++++++++++++++++++++++++++++++++++++++++++++++++------------\n");
     printf("iter_times = %d, err/err0=%18.14f \n", iter_times, err);
 
-    return 0;
+    return iter_times;
 }
