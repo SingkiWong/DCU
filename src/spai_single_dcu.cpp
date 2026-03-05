@@ -6,6 +6,7 @@
 #include <memory.h>
 #include <string>
 #include <vector>
+#include <cstring>
 #include "common/dataType.h"
 #include "common/read.h"
 #include "common/init.h"
@@ -2689,30 +2690,57 @@ float StaticSPAIv20(CSC_Matrix *devA, CSC_Matrix *devM) {
  *Test for Reading the matrix from the file that comes from the SuiteSparse Matrix Collection
  */
 int main(int argc, char **argv) {
+    char filename[256] = "matrices/circuit_2.mtx";
+    const char *strategy = "static";
+    int deviceId = 0;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--matrix") == 0 && i + 1 < argc) {
+            strncpy(filename, argv[++i], sizeof(filename) - 1);
+            filename[sizeof(filename) - 1] = '\0';
+        } else if (strcmp(argv[i], "--strategy") == 0 && i + 1 < argc) {
+            strategy = argv[++i];
+        } else if (strcmp(argv[i], "--device") == 0 && i + 1 < argc) {
+            deviceId = atoi(argv[++i]);
+        }
+    }
+
     int deviceCount = 0;
     hipGetDeviceCount(&deviceCount);
     if (deviceCount < 1) {
         printf("错误: 未检测到DCU设备\n");
         return -1;
     }
-    printf("检测到 %d 张 DCU，使用第一张DCU运行\n", deviceCount);
-    hipSetDevice(0);  // 明确使用第一张DCU
+
+    if (deviceId < 0 || deviceId >= deviceCount) deviceId = 0;
+    printf("检测到 %d 张 DCU，使用设备 %d 运行\n", deviceCount, deviceId);
+    hipSetDevice(deviceId);
 
     // 查询并显示设备信息
     hipDeviceProp_t prop;
-    hipGetDeviceProperties(&prop, 0);
+    hipGetDeviceProperties(&prop, deviceId);
     printf("使用DCU设备: %s\n", prop.name);
     printf("计算能力: %d.%d\n", prop.major, prop.minor);
     printf("Wavefront大小: %d\n", prop.warpSize);
-
-    char filename[50];
-
-    cout << "Input the matrix filename:" << endl;
-    cin >> filename;
+    printf("策略标签: %s\n", strategy);
+    printf("矩阵文件: %s\n", filename);
 
     CSC_Matrix *CSC_A;
     CSC_A = (CSC_Matrix *) malloc(sizeof(CSC_Matrix));
+    if (!CSC_A) {
+        printf("错误: 无法分配CSC_A\n");
+        return -1;
+    }
+    memset(CSC_A, 0, sizeof(CSC_Matrix));
     readMatrixToCSC(filename, CSC_A);
+    if (!CSC_A->mPtr || !CSC_A->mIndex || !CSC_A->mData || CSC_A->n <= 0) {
+        printf("错误: 矩阵读取失败或数据无效: %s\n", filename);
+        if (CSC_A->mPtr) free(CSC_A->mPtr);
+        if (CSC_A->mIndex) free(CSC_A->mIndex);
+        if (CSC_A->mData) free(CSC_A->mData);
+        free(CSC_A);
+        return -1;
+    }
 
 
     hipEvent_t start, stop;
@@ -2725,6 +2753,11 @@ int main(int argc, char **argv) {
 
     CSC_Matrix *devCSC_A;
     devCSC_A = (CSC_Matrix *) malloc(sizeof(CSC_Matrix));
+    if (!devCSC_A) {
+        printf("错误: 无法分配devCSC_A\n");
+        return -1;
+    }
+    memset(devCSC_A, 0, sizeof(CSC_Matrix));
     devCSC_A->n = CSC_A->n;
     devCSC_A->nonzeroes = CSC_A->nonzeroes;
     devCSC_A->nCol = CSC_A->n;
@@ -2732,6 +2765,11 @@ int main(int argc, char **argv) {
 
     CSC_Matrix *devCSC_M;
     devCSC_M = (CSC_Matrix *) malloc(sizeof(CSC_Matrix));
+    if (!devCSC_M) {
+        printf("错误: 无法分配devCSC_M\n");
+        return -1;
+    }
+    memset(devCSC_M, 0, sizeof(CSC_Matrix));
 
     hipMalloc((void **) &devCSC_A->mPtr, sizeof(int) * (CSC_A->nCol + 1));
     hipMalloc((void **) &devCSC_A->mIndex, sizeof(int) * CSC_A->nonzeroes);
