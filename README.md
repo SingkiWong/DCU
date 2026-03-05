@@ -11,6 +11,37 @@
 
 ---
 
+## 0. 接口到底怎么调用？算法库在哪？
+
+### 命令行调用（推荐）
+
+编译后直接调用 `spai_multi_dcu_mpi`：
+
+```bash
+mpirun -np 2 ./spai_multi_dcu_mpi 2 --algo static --matrix matrices/circuit_2.mtx
+mpirun -np 2 ./spai_multi_dcu_mpi 2 --algo dynamic --matrix matrices/circuit_2.mtx
+```
+
+也可以先看帮助：
+
+```bash
+./spai_multi_dcu_mpi --help
+```
+
+### 源码级接口（算法库位置）
+
+当前项目不是单独 `.so/.a` 的外部库发布形态，而是**源码接口**：
+
+- 头文件（接口声明）：`include/common/spai_multi_dcu_api.h`
+- 实现文件（算法主体）：`src/spai_multi_dcu.cpp`
+
+可直接调用两个接口：
+
+- `RunStaticSPAI_MultiDCU_MPI(...)`
+- `RunDynamicSPAI_MultiDCU_MPI(...)`
+
+---
+
 ## 1. 运行前准备
 
 - ROCm/HIP 环境可用

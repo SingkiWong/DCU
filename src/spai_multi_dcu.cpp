@@ -16,6 +16,7 @@
 #include "common/assemble.h"
 #include "common/cuFormatConversion.h"
 #include "bicgstab/bicgstab_solver.h"
+#include "common/spai_multi_dcu_api.h"
 
 using namespace std;
 
@@ -1292,7 +1293,7 @@ void enableP2P(MultiDCU_Context *ctx) {
 // 多DCU初始化函数
 //==============================================================================
 
-MultiDCU_Context* initMultiDCU(int requestedDCUs = -1) {
+MultiDCU_Context* initMultiDCU(int requestedDCUs) {
     MultiDCU_Context *ctx = (MultiDCU_Context*)malloc(sizeof(MultiDCU_Context));
 
     // 查询可用DCU数量
@@ -2379,6 +2380,27 @@ void cleanupMultiDCU(MultiDCU_Context *ctx) {
 }
 
 //==============================================================================
+// 命令行帮助
+//==============================================================================
+
+void printUsage(const char *prog) {
+    printf("用法: %s [dcu_count] [--algo static|dynamic] [--partition balanced_columns|balanced_nnz]\n", prog);
+    printf("           [--matrix <path>] [--precondition-only] [--help]\n\n");
+    printf("参数说明:\n");
+    printf("  dcu_count                使用的 DCU 数量，默认自动检测全部可用设备\n");
+    printf("  --algo static            静态模式（默认），按列均衡\n");
+    printf("  --algo dynamic           动态模式，按 NNZ 均衡\n");
+    printf("  --partition ...          手动覆盖划分策略\n");
+    printf("  --matrix <path>          指定矩阵路径（默认 matrices/circuit_2.mtx）\n");
+    printf("  --precondition-only      仅计算预条件子，不运行 BiCGSTAB\n");
+    printf("  --help                   打印帮助信息\n\n");
+    printf("算法接口（源码级）:\n");
+    printf("  include/common/spai_multi_dcu_api.h\n");
+    printf("  - RunStaticSPAI_MultiDCU_MPI(...)\n");
+    printf("  - RunDynamicSPAI_MultiDCU_MPI(...)\n");
+}
+
+//==============================================================================
 // 主函数
 //==============================================================================
 
@@ -2391,7 +2413,10 @@ int main(int argc, char **argv) {
     std::string algoMode = "static";
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--matrix") == 0 && i + 1 < argc) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            printUsage(argv[0]);
+            return 0;
+        } else if (strcmp(argv[i], "--matrix") == 0 && i + 1 < argc) {
             strncpy(filename, argv[++i], sizeof(filename) - 1);
             filename[sizeof(filename) - 1] = '\0';
         } else if (strcmp(argv[i], "--algo") == 0 && i + 1 < argc) {
