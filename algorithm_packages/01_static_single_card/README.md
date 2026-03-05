@@ -10,8 +10,11 @@
 ./spai_single_dcu --strategy static --matrix matrices/circuit_2.mtx
 ```
 
-## 采集指标
-- 预条件子时间（preconditioner_ms）
-- GPUPBICGSTAB时间（gpupbicgstab_ms）
-- 迭代次数（iteration_count）
-- 是否收敛（converged）
+## 指标建议
+- `preconditioner_ms`
+- `gpupbicgstab_ms`
+- `iteration_count`
+- `converged`
+
+## 备注
+该包用于单 DCU 静态基线对比，多卡算法接口不在本包内。
