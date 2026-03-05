@@ -1864,6 +1864,9 @@ struct AlgorithmRunMetrics {
     int iterationCount;
 };
 
+// 对外算法接口：
+// - static  -> useNnzBalance=false (balanced_columns)
+// - dynamic -> useNnzBalance=true  (balanced_nnz)
 float RunStaticSPAI_MultiDCU_MPI(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A,
                                  CSC_Matrix *devCSC_M_global, int baseColStart, int baseColEnd) {
     return StaticSPAIv20_MultiDCU(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd, false);

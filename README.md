@@ -151,3 +151,27 @@ make -f Makefile.multi mpi
 ```bash
 make -f Makefile.multi test-api
 ```
+
+
+---
+
+## 8. 动态和静态算法在哪里？（源码定位）
+
+你要找的两个“算法入口”都在：`src/spai_multi_dcu.cpp`
+
+- 静态入口：`RunStaticSPAI_MultiDCU_MPI(...)`
+- 动态入口：`RunDynamicSPAI_MultiDCU_MPI(...)`
+
+它们都在同一个核心实现里执行：
+
+- 统一核心函数：`StaticSPAIv20_MultiDCU(..., bool useNnzBalance)`
+- `useNnzBalance=false` => 静态（按列均衡）
+- `useNnzBalance=true` => 动态（按 NNZ 均衡）
+
+真正决定“动态/静态”分配策略的是：
+
+- `distributeColumns(..., useNnzBalance)`
+
+此外，接口声明（给外部 include 用）在：
+
+- `include/common/spai_multi_dcu_api.h`
