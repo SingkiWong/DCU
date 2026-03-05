@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Utilities for DCU SPAI benchmark database (4 algorithm packages).
+"""Utilities for DCU SPAI benchmark database (2 algorithm interfaces).
 
 Usage:
   python3 experiments/benchmark_db.py init --db experiments/benchmark.sqlite
@@ -35,62 +35,91 @@ def insert_sample(db_path: Path) -> None:
         algo_ids = {r["name"]: r["id"] for r in conn.execute("SELECT id, name FROM algorithms")}
 
         sample_runs = [
-            # dcu_units, total_cards, pre_ms, solver_ms, iters
-            ("demo-2cards", 1, 2, 3.10, 6.25, 51),
-            ("demo-4cards", 2, 4, 1.92, 4.83, 48),
-            ("demo-6cards", 3, 6, 1.48, 4.21, 46),
+            # run_tag, dcu_units, total_cards
+            ("demo-2cards", 1, 2),
+            ("demo-4cards", 2, 4),
+            ("demo-6cards", 3, 6),
         ]
 
-        for run_tag, dcu_units, total_cards, pre_ms, solver_ms, iters in sample_runs:
+        for run_tag, dcu_units, total_cards in sample_runs:
+            # static interface
             cur = conn.execute(
                 """
                 INSERT INTO experiment_runs (
                     run_tag, matrix_name, matrix_rows, matrix_cols, matrix_nnz,
                     dcu_mode, dcu_units, cards_per_dcu, total_cards,
-                    node_count, partition_strategy, converged, solver_tol,
+                    node_count, converged, solver_tol,
                     max_iters, total_iters, preconditioner_ms, gpupbicgstab_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    run_tag,
+                    f"{run_tag}-static",
                     "A16x16_demo",
                     16,
                     16,
                     64,
-                    "single_node_multi_card",
+                    "multi_node_multi_card_mpi_hip",
                     dcu_units,
                     2,
                     total_cards,
-                    1,
-                    "balanced_columns",
+                    max(1, dcu_units),
                     1,
                     1e-8,
                     1000,
-                    iters,
-                    pre_ms,
-                    solver_ms,
+                    48,
+                    3.0 / dcu_units,
+                    0.30,
                 ),
             )
             run_id = cur.lastrowid
-
-            rows = [
-                (run_id, algo_ids["static_single_card"], pre_ms + 0.30, solver_ms + 0.25, iters + 2, 1, 9.1e-9),
-                (run_id, algo_ids["static_multi_card"], pre_ms, solver_ms, iters, 1, 8.8e-9),
-                (run_id, algo_ids["dynamic_single_card"], pre_ms + 0.15, solver_ms + 0.10, iters - 1, 1, 8.6e-9),
-                (run_id, algo_ids["dynamic_multi_card"], pre_ms - 0.10, solver_ms - 0.08, iters - 2, 1, 8.3e-9),
-                (run_id, algo_ids["cusparse_csrilu0"], pre_ms + 0.55, solver_ms + 0.21, iters - 3, 1, 8.0e-9),
-                (run_id, algo_ids["viennacl_sspai_vcl"], pre_ms + 0.72, solver_ms + 0.41, iters - 4, 1, 7.9e-9),
-                (run_id, algo_ids["gspai_adaptive"], pre_ms + 0.61, solver_ms + 0.05, iters - 5, 1, 7.7e-9),
-            ]
-
-            conn.executemany(
+            conn.execute(
                 """
                 INSERT INTO run_algorithm_metrics (
                     run_id, algorithm_id, preconditioner_ms,
-                    gpupbicgstab_ms, iteration_count, converged, residual_norm
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    gpupbicgstab_ms, iteration_count, converged
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                rows,
+                (run_id, algo_ids["static_spai_mpi"], 3.0 / dcu_units, 0.30, -1, 1),
+            )
+
+            # dynamic interface
+            cur = conn.execute(
+                """
+                INSERT INTO experiment_runs (
+                    run_tag, matrix_name, matrix_rows, matrix_cols, matrix_nnz,
+                    dcu_mode, dcu_units, cards_per_dcu, total_cards,
+                    node_count, converged, solver_tol,
+                    max_iters, total_iters, preconditioner_ms, gpupbicgstab_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"{run_tag}-dynamic",
+                    "A16x16_demo",
+                    16,
+                    16,
+                    64,
+                    "multi_node_multi_card_mpi_hip",
+                    dcu_units,
+                    2,
+                    total_cards,
+                    max(1, dcu_units),
+                    1,
+                    1e-8,
+                    1000,
+                    46,
+                    2.7 / dcu_units,
+                    0.30,
+                ),
+            )
+            run_id = cur.lastrowid
+            conn.execute(
+                """
+                INSERT INTO run_algorithm_metrics (
+                    run_id, algorithm_id, preconditioner_ms,
+                    gpupbicgstab_ms, iteration_count, converged
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, algo_ids["dynamic_spai_mpi"], 2.7 / dcu_units, 0.30, -1, 1),
             )
 
 
@@ -108,7 +137,7 @@ def report(db_path: Path) -> None:
     FROM run_algorithm_metrics ram
     JOIN experiment_runs er ON er.id = ram.run_id
     JOIN algorithms a ON a.id = ram.algorithm_id
-    ORDER BY er.total_cards ASC, ram.total_ms ASC;
+    ORDER BY er.total_cards ASC, a.name ASC;
     """
     with connect(db_path) as conn:
         rows = conn.execute(query).fetchall()

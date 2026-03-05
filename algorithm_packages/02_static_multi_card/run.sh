@@ -7,4 +7,4 @@ cd "$REPO_ROOT"
 UNITS=${1:-2}      # DCU units: 1/2/3 -> 2/4/6 cards
 MATRIX_FILE=${2:-matrices/circuit_2.mtx}
 make -f Makefile.multi multi
-./spai_multi_dcu "$UNITS" --partition balanced_columns --matrix "$MATRIX_FILE"
+./spai_multi_dcu "$UNITS" --algo static --partition balanced_columns --matrix "$MATRIX_FILE"

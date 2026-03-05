@@ -1853,6 +1853,25 @@ float StaticSPAIv20_ColumnRange(CSC_Matrix *devA, CSC_Matrix *devM,
 // 每个DCU独立计算自己负责的列
 //==============================================================================
 
+
+
+float StaticSPAIv20_MultiDCU(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A, CSC_Matrix *devCSC_M_global,
+                             int baseColStart, int baseColEnd, bool useNnzBalance);
+
+struct AlgorithmRunMetrics {
+    float preconditionerMs;
+    int iterationCount;
+};
+
+float RunStaticSPAI_MultiDCU_MPI(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A,
+                                 CSC_Matrix *devCSC_M_global, int baseColStart, int baseColEnd) {
+    return StaticSPAIv20_MultiDCU(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd, false);
+}
+
+float RunDynamicSPAI_MultiDCU_MPI(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A,
+                                  CSC_Matrix *devCSC_M_global, int baseColStart, int baseColEnd) {
+    return StaticSPAIv20_MultiDCU(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd, true);
+}
 float StaticSPAIv20_MultiDCU(MultiDCU_Context *ctx, const CSC_Matrix *CSC_A, CSC_Matrix *devCSC_M_global,
                              int baseColStart, int baseColEnd, bool useNnzBalance) {
     float totalTime = 0.0;
@@ -2291,14 +2310,19 @@ int main(int argc, char **argv) {
     char filename[256] = "matrices/circuit_2.mtx";
     bool useNnzBalance = false;  // static default: balanced columns
     bool preconditionOnly = false;
+    bool partitionSpecified = false;
     int requestedDCUs = -1;
+    std::string algoMode = "static";
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--matrix") == 0 && i + 1 < argc) {
             strncpy(filename, argv[++i], sizeof(filename) - 1);
             filename[sizeof(filename) - 1] = '\0';
+        } else if (strcmp(argv[i], "--algo") == 0 && i + 1 < argc) {
+            algoMode = argv[++i];
         } else if (strcmp(argv[i], "--partition") == 0 && i + 1 < argc) {
             const char *mode = argv[++i];
+            partitionSpecified = true;
             if (strcmp(mode, "balanced_nnz") == 0) useNnzBalance = true;
             else useNnzBalance = false;
         } else if (strcmp(argv[i], "--precondition-only") == 0) {
@@ -2306,6 +2330,12 @@ int main(int argc, char **argv) {
         } else if (argv[i][0] != '-') {
             requestedDCUs = atoi(argv[i]);
         }
+    }
+
+    // 两个算法接口：static / dynamic。未显式指定partition时由算法模式决定。
+    if (!partitionSpecified) {
+        if (algoMode == "dynamic") useNnzBalance = true;
+        else useNnzBalance = false;
     }
 
 #ifdef USE_MPI
@@ -2324,6 +2354,7 @@ int main(int argc, char **argv) {
         cout << "多DCU SPAI预条件子求解器" << endl;
         cout << "========================================" << endl;
         cout << "矩阵文件: " << filename << endl;
+        cout << "算法模式: " << algoMode << endl;
         cout << "分区策略: " << (useNnzBalance ? "balanced_nnz" : "balanced_columns") << endl;
     }
 #ifdef USE_MPI
@@ -2390,7 +2421,12 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
     memset(devCSC_M_global, 0, sizeof(CSC_Matrix));
-    float preconditioningTime = StaticSPAIv20_MultiDCU(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd, useNnzBalance);
+    float preconditioningTime = 0.0f;
+    if (algoMode == "dynamic") {
+        preconditioningTime = RunDynamicSPAI_MultiDCU_MPI(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd);
+    } else {
+        preconditioningTime = RunStaticSPAI_MultiDCU_MPI(ctx, CSC_A, devCSC_M_global, baseColStart, baseColEnd);
+    }
 
     // 聚合本节点多DCU结果
     aggregateResults(ctx, devCSC_M_global);
@@ -2419,6 +2455,16 @@ int main(int argc, char **argv) {
 
     // 打印性能统计
     printPerformanceStats(ctx, preconditioningTime);
+
+    AlgorithmRunMetrics metrics;
+    metrics.preconditionerMs = preconditioningTime;
+    metrics.iterationCount = -1;  // 多DCU求解器尚未完整集成时用 -1 标记
+
+    if (mpiRank == 0) {
+        printf("[ALGO_REPORT] mode=%s, dcu_units=%d, partition=%s, preconditioner_ms=%.4f, iteration_count=%d\n",
+               algoMode.c_str(), ctx->numDCUs, useNnzBalance ? "balanced_nnz" : "balanced_columns",
+               metrics.preconditionerMs, metrics.iterationCount);
+    }
 
 #ifdef USE_MPI
     if (mpiRank == 0) {

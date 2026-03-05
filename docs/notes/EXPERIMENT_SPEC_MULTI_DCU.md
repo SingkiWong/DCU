@@ -8,14 +8,14 @@
 
 ---
 
-## 1. 四个算法包
+## 1. 算法库接口（两个算法）
 
-1. `01_static_single_card`（静态+单卡）
-2. `02_static_multi_card`（静态+多卡）
-3. `03_dynamic_single_card`（动态+单卡）
-4. `04_dynamic_multi_card`（动态+多卡，MPI+HIP）
+算法库只保留两个接口（原理和流程保持一致）：
 
-每个包独立放置运行脚本，便于区分与批量测试。
+1. `RunStaticSPAI_MultiDCU_MPI(...)`：静态算法（balanced_columns）
+2. `RunDynamicSPAI_MultiDCU_MPI(...)`：动态算法（balanced_nnz）
+
+四个运行包仍可保留用于不同部署场景（单卡/多卡、MPI与否）。
 
 ---
 

@@ -46,10 +46,10 @@ make -f Makefile.multi mpi
 ./spai_single_dcu --strategy dynamic --matrix matrices/circuit_2.mtx
 
 # 多卡静态（列均衡）
-./spai_multi_dcu 2 --partition balanced_columns --matrix matrices/circuit_2.mtx
+./spai_multi_dcu 2 --algo static --partition balanced_columns --matrix matrices/circuit_2.mtx
 
 # 多卡动态（NNZ均衡，预条件模式）
-./spai_multi_dcu 2 --partition balanced_nnz --precondition-only --matrix matrices/circuit_2.mtx
+./spai_multi_dcu 2 --algo dynamic --partition balanced_nnz --precondition-only --matrix matrices/circuit_2.mtx
 ```
 
 ## 一键运行分包
@@ -67,3 +67,11 @@ python3 experiments/benchmark_db.py report --db experiments/benchmark.sqlite
 ```
 
 详细实验约束见：`docs/notes/EXPERIMENT_SPEC_MULTI_DCU.md`。
+
+
+## 算法库接口（多DCU+MPI）
+
+- `RunStaticSPAI_MultiDCU_MPI(...)`
+- `RunDynamicSPAI_MultiDCU_MPI(...)`
+
+两者基本原理和流程一致，仅分区策略不同（静态列均衡 / 动态NNZ均衡）。
